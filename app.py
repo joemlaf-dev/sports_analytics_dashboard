@@ -29,6 +29,16 @@ st.markdown(
         padding: 8px 14px;
         background-color: #111827;
       }
+      div[data-testid="stMetric"] {
+        background: linear-gradient(145deg, #111827, #0f172a);
+        border: 1px solid #263043;
+        padding: 10px 12px;
+        border-radius: 12px;
+      }
+      .section-subtitle {
+        color: #9ca3af;
+        margin-bottom: 0.75rem;
+      }
     </style>
     """,
     unsafe_allow_html=True,
@@ -67,6 +77,22 @@ df = pd.DataFrame(
     ],
 )
 
+# Team logo URLs (ESPN CDN) for visual branding.
+team_logos = {
+    "UConn": "https://a.espncdn.com/i/teamlogos/ncaa/500/41.png",
+    "Houston": "https://a.espncdn.com/i/teamlogos/ncaa/500/248.png",
+    "Purdue": "https://a.espncdn.com/i/teamlogos/ncaa/500/2509.png",
+    "Tennessee": "https://a.espncdn.com/i/teamlogos/ncaa/500/2633.png",
+    "Arizona": "https://a.espncdn.com/i/teamlogos/ncaa/500/12.png",
+    "North Carolina": "https://a.espncdn.com/i/teamlogos/ncaa/500/153.png",
+    "Iowa State": "https://a.espncdn.com/i/teamlogos/ncaa/500/66.png",
+    "Alabama": "https://a.espncdn.com/i/teamlogos/ncaa/500/333.png",
+    "Duke": "https://a.espncdn.com/i/teamlogos/ncaa/500/150.png",
+    "Kansas": "https://a.espncdn.com/i/teamlogos/ncaa/500/2305.png",
+    "Creighton": "https://a.espncdn.com/i/teamlogos/ncaa/500/156.png",
+    "Marquette": "https://a.espncdn.com/i/teamlogos/ncaa/500/269.png",
+}
+
 # Metrics:
 # Offensive efficiency = points scored per 100 possessions.
 # Defensive efficiency = points allowed per 100 possessions.
@@ -78,6 +104,8 @@ df["Off_Eff"] = (df["Points_For"] / df["Possessions"]) * 100
 df["Def_Eff"] = (df["Points_Against"] / df["Possessions"]) * 100
 df["NET_Rating"] = df["Off_Eff"] - df["Def_Eff"]
 df["SOS"] = df["Opp_Win_Pct"] * 100
+df["Logo_URL"] = df["Team"].map(team_logos).fillna("")
+df["Team_Label"] = df["Team"]
 
 df = df.sort_values("NET_Rating", ascending=False).reset_index(drop=True)
 df["Rank"] = df.index + 1
@@ -104,103 +132,168 @@ if filtered_df.empty:
 filtered_df = filtered_df.sort_values("NET_Rating", ascending=False).reset_index(drop=True)
 filtered_df["Rank"] = filtered_df.index + 1
 
-metric_cols = st.columns(4)
-metric_cols[0].metric("Teams shown", f"{len(filtered_df)}")
-metric_cols[1].metric("Avg Off Eff", f"{filtered_df['Off_Eff'].mean():.2f}")
-metric_cols[2].metric("Avg Def Eff", f"{filtered_df['Def_Eff'].mean():.2f}")
-metric_cols[3].metric("Avg NET", f"{filtered_df['NET_Rating'].mean():.2f}")
+selected_team = st.sidebar.selectbox(
+    "Highlight team",
+    filtered_df["Team"].tolist(),
+    index=0,
+)
 
-st.markdown("---")
+team_row = filtered_df[filtered_df["Team"] == selected_team].iloc[0]
+avg_off = filtered_df["Off_Eff"].mean()
+avg_def = filtered_df["Def_Eff"].mean()
+avg_net = filtered_df["NET_Rating"].mean()
+avg_sos = filtered_df["SOS"].mean()
 
-left_col, right_col = st.columns([1.2, 1])
+st.markdown("### Interactive Team Snapshot")
+snapshot_cols = st.columns([0.55, 1, 1, 1, 1, 1])
+with snapshot_cols[0]:
+    if team_row["Logo_URL"]:
+        st.image(team_row["Logo_URL"], width=64)
+snapshot_cols[1].metric("Team", team_row["Team"])
+snapshot_cols[2].metric("Record", f"{int(team_row['Wins'])}-{int(team_row['Losses'])}")
+snapshot_cols[3].metric("Off Eff", f"{team_row['Off_Eff']:.2f}", f"{team_row['Off_Eff'] - avg_off:+.2f} vs avg")
+snapshot_cols[4].metric("Def Eff", f"{team_row['Def_Eff']:.2f}", f"{avg_def - team_row['Def_Eff']:+.2f} better than avg")
+snapshot_cols[5].metric("NET / SOS", f"{team_row['NET_Rating']:.2f} / {team_row['SOS']:.1f}", f"{team_row['NET_Rating'] - avg_net:+.2f} NET")
 
-with left_col:
-    st.subheader("Offensive vs Defensive Efficiency")
-    scatter_fig = px.scatter(
-        filtered_df,
-        x="Off_Eff",
-        y="Def_Eff",
-        text="Team",
-        color="NET_Rating",
-        color_continuous_scale="RdYlGn",
+st.markdown(
+    f"<div class='section-subtitle'>{selected_team} rank: #{int(team_row['Rank'])} in current filtered view.</div>",
+    unsafe_allow_html=True,
+)
+
+overview_tab, team_tab = st.tabs(["Overview", "Team Explorer"])
+
+with overview_tab:
+    left_col, right_col = st.columns([1.2, 1])
+
+    with left_col:
+        st.subheader("Offensive vs Defensive Efficiency")
+        scatter_fig = px.scatter(
+            filtered_df,
+            x="Off_Eff",
+            y="Def_Eff",
+            text="Team_Label",
+            color="NET_Rating",
+            color_continuous_scale="RdYlGn",
+            size="Wins",
+            hover_data={
+                "Team": True,
+                "Conference": True,
+                "Wins": True,
+                "Losses": True,
+                "Off_Eff": ":.2f",
+                "Def_Eff": ":.2f",
+                "NET_Rating": ":.2f",
+                "SOS": ":.2f",
+            },
+        )
+        scatter_fig.update_traces(textposition="top center")
+        scatter_fig.update_layout(
+            template="plotly_dark",
+            xaxis_title="Offensive Efficiency (Points per 100 possessions)",
+            yaxis_title="Defensive Efficiency (Points allowed per 100 possessions)",
+            coloraxis_colorbar_title="NET",
+            height=520,
+            margin=dict(l=20, r=20, t=30, b=20),
+        )
+        # Lower defensive efficiency is better; reverse axis for intuitive reading.
+        scatter_fig.update_yaxes(autorange="reversed")
+        st.plotly_chart(scatter_fig, use_container_width=True)
+
+    with right_col:
+        st.subheader("NET Ratings")
+        net_fig = px.bar(
+            filtered_df.sort_values("NET_Rating", ascending=True),
+            x="NET_Rating",
+            y="Team_Label",
+            orientation="h",
+            color="Conference",
+            text="NET_Rating",
+        )
+        net_fig.update_traces(texttemplate="%{text:.2f}", textposition="outside")
+        net_fig.update_layout(
+            template="plotly_dark",
+            xaxis_title="NET Rating",
+            yaxis_title="",
+            height=520,
+            margin=dict(l=20, r=20, t=30, b=20),
+        )
+        st.plotly_chart(net_fig, use_container_width=True)
+
+    st.markdown("---")
+    st.subheader("Sortable Team Rankings")
+
+    table_df = filtered_df[
+        [
+            "Rank",
+            "Logo_URL",
+            "Team",
+            "Conference",
+            "Wins",
+            "Losses",
+            "Win_Pct",
+            "Off_Eff",
+            "Def_Eff",
+            "NET_Rating",
+            "SOS",
+        ]
+    ].copy()
+
+    for col in ["Win_Pct", "Off_Eff", "Def_Eff", "NET_Rating", "SOS"]:
+        table_df[col] = table_df[col].round(3)
+
+    st.dataframe(
+        table_df,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "Logo_URL": st.column_config.ImageColumn("Logo", help="Team logo"),
+            "Win_Pct": st.column_config.NumberColumn("Win %", format="%.3f"),
+            "Off_Eff": st.column_config.NumberColumn("Off Eff", format="%.3f"),
+            "Def_Eff": st.column_config.NumberColumn("Def Eff", format="%.3f"),
+            "NET_Rating": st.column_config.NumberColumn("NET", format="%.3f"),
+            "SOS": st.column_config.NumberColumn("SOS", format="%.2f"),
+        },
+    )
+
+with team_tab:
+    st.subheader(f"{selected_team} Team Explorer")
+    compare_df = filtered_df.copy()
+    compare_df["Selected Team"] = compare_df["Team"].apply(
+        lambda team: selected_team if team == selected_team else "Other Teams"
+    )
+    compare_fig = px.scatter(
+        compare_df,
+        x="SOS",
+        y="NET_Rating",
+        color="Selected Team",
+        color_discrete_map={selected_team: "#38bdf8", "Other Teams": "#64748b"},
         size="Wins",
+        text="Team_Label",
         hover_data={
             "Team": True,
             "Conference": True,
             "Wins": True,
             "Losses": True,
-            "Off_Eff": ":.2f",
-            "Def_Eff": ":.2f",
-            "NET_Rating": ":.2f",
             "SOS": ":.2f",
+            "NET_Rating": ":.2f",
         },
+        title="NET Rating vs Strength of Schedule",
     )
-    scatter_fig.update_traces(textposition="top center")
-    scatter_fig.update_layout(
-        template="plotly_dark",
-        xaxis_title="Offensive Efficiency (Points per 100 possessions)",
-        yaxis_title="Defensive Efficiency (Points allowed per 100 possessions)",
-        coloraxis_colorbar_title="NET",
-        height=520,
-        margin=dict(l=20, r=20, t=30, b=20),
-    )
-    # Lower defensive efficiency is better; reverse axis for intuitive reading.
-    scatter_fig.update_yaxes(autorange="reversed")
-    st.plotly_chart(scatter_fig, use_container_width=True)
+    compare_fig.update_traces(textposition="top center")
+    compare_fig.update_layout(template="plotly_dark", height=500, margin=dict(l=20, r=20, t=45, b=20))
+    st.plotly_chart(compare_fig, use_container_width=True)
 
-with right_col:
-    st.subheader("NET Ratings")
-    net_fig = px.bar(
-        filtered_df.sort_values("NET_Rating", ascending=True),
-        x="NET_Rating",
-        y="Team",
-        orientation="h",
-        color="Conference",
-        text="NET_Rating",
-    )
-    net_fig.update_traces(texttemplate="%{text:.2f}", textposition="outside")
-    net_fig.update_layout(
-        template="plotly_dark",
-        xaxis_title="NET Rating",
-        yaxis_title="",
-        height=520,
-        margin=dict(l=20, r=20, t=30, b=20),
-    )
-    st.plotly_chart(net_fig, use_container_width=True)
+    rank_change_df = filtered_df.sort_values("Off_Eff", ascending=False).reset_index(drop=True)
+    rank_change_df["Off_Rank"] = rank_change_df.index + 1
+    rank_change_df = rank_change_df.sort_values("Def_Eff", ascending=True).reset_index(drop=True)
+    rank_change_df["Def_Rank"] = rank_change_df.index + 1
+    rank_row = rank_change_df[rank_change_df["Team"] == selected_team].iloc[0]
 
-st.markdown("---")
-st.subheader("Sortable Team Rankings")
-
-table_df = filtered_df[
-    [
-        "Rank",
-        "Team",
-        "Conference",
-        "Wins",
-        "Losses",
-        "Win_Pct",
-        "Off_Eff",
-        "Def_Eff",
-        "NET_Rating",
-        "SOS",
-    ]
-].copy()
-
-for col in ["Win_Pct", "Off_Eff", "Def_Eff", "NET_Rating", "SOS"]:
-    table_df[col] = table_df[col].round(3)
-
-st.dataframe(
-    table_df,
-    use_container_width=True,
-    hide_index=True,
-    column_config={
-        "Win_Pct": st.column_config.NumberColumn("Win %", format="%.3f"),
-        "Off_Eff": st.column_config.NumberColumn("Off Eff", format="%.3f"),
-        "Def_Eff": st.column_config.NumberColumn("Def Eff", format="%.3f"),
-        "NET_Rating": st.column_config.NumberColumn("NET", format="%.3f"),
-        "SOS": st.column_config.NumberColumn("SOS", format="%.2f"),
-    },
-)
+    rank_cols = st.columns(4)
+    rank_cols[0].metric("NET Rank", f"#{int(team_row['Rank'])}")
+    rank_cols[1].metric("Offense Rank", f"#{int(rank_row['Off_Rank'])}")
+    rank_cols[2].metric("Defense Rank", f"#{int(rank_row['Def_Rank'])}")
+    rank_cols[3].metric("SOS Rank", f"#{int(filtered_df['SOS'].rank(ascending=False, method='min')[filtered_df['Team'] == selected_team].iloc[0])}")
 
 st.caption(
     "Metric definitions: Off Eff = points scored per 100 possessions; "
